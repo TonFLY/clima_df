@@ -6,13 +6,13 @@ from dotenv import load_dotenv
 import os
 import datetime
 
-# load .env from working directory (if present) and also try common container path
-load_dotenv()
-# container path fallback (/app/.env) -- won't override already-set env vars
-load_dotenv('/app/.env', override=False)
+# Só carrega .env se rodando fora do Docker (ex: local)
+if not os.environ.get('RUNNING_IN_DOCKER'):
+    load_dotenv()
+    load_dotenv('/app/.env', override=False)
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
-    st.error('DATABASE_URL não encontrada no .env')
+    st.error('DATABASE_URL não encontrada no ambiente')
     st.stop()
 
 engine = create_engine(DATABASE_URL)
