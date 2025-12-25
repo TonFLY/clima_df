@@ -39,8 +39,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:clima-etl-latest
-            ghcr.io/${{ github.repository }}:clima-etl-${{ github.sha }}
+            ghcr.io/${{ toLower(github.repository) }}:clima-etl-latest
+            ghcr.io/${{ toLower(github.repository) }}:clima-etl-${{ github.sha }}
 
       - name: Build and push Dashboard image
         uses: docker/build-push-action@v5
@@ -50,8 +50,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:clima-dashboard-latest
-            ghcr.io/${{ github.repository }}:clima-dashboard-${{ github.sha }}
+            ghcr.io/${{ toLower(github.repository) }}:clima-dashboard-latest
+            ghcr.io/${{ toLower(github.repository) }}:clima-dashboard-${{ github.sha }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -68,8 +68,8 @@ jobs:
           VPS_HOST: ${{ secrets.DEPLOY_HOST }}
           VPS_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH != '' && secrets.DEPLOY_PATH || '/home/deploy/app' }}
-          IMAGE_ETL: ghcr.io/${{ github.repository }}:clima-etl-latest
-          IMAGE_DASHBOARD: ghcr.io/${{ github.repository }}:clima-dashboard-latest
+          IMAGE_ETL: ghcr.io/${{ toLower(github.repository) }}:clima-etl-latest
+          IMAGE_DASHBOARD: ghcr.io/${{ toLower(github.repository) }}:clima-dashboard-latest
         run: |
           ssh -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST "IMAGE_ETL=$IMAGE_ETL IMAGE_DASHBOARD=$IMAGE_DASHBOARD DEPLOY_PATH=$DEPLOY_PATH bash -s" <<'EOF'
           set -e
