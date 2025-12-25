@@ -102,6 +102,14 @@ jobs:
           mkdir -p "$DEPLOY_PATH"
           cd "$DEPLOY_PATH"
 
+          # create .env from secrets (DATABASE_URL and optional others)
+          cat > .env <<ENV_EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          TZ=America/Sao_Paulo
+          OPEN_METEO_ENDPOINT=${{ secrets.OPEN_METEO_ENDPOINT || 'https://api.open-meteo.com' }}
+          ENV_EOF
+          chmod 600 .env
+
           cat > docker-compose.yml <<COMPOSE
           version: "3.9"
           services:
