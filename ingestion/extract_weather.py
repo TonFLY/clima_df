@@ -4,12 +4,13 @@ import logging
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
+import datetime
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def extract_weather():
+def extract_weather(historical=False):
     # Carregar variáveis do .env
     load_dotenv()
     database_url = os.getenv('DATABASE_URL')
@@ -61,8 +62,14 @@ def extract_weather():
     with engine.begin() as conn:  # Transação explícita
         for region in regions:
             try:
-                # Usando API Open-Meteo para dados diários com timeout
-                url = f"https://api.open-meteo.com/v1/forecast?latitude={region['lat']}&longitude={region['lon']}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
+                if historical:
+                    # API histórica para backfill
+                    end_date = datetime.date.today()
+                    url = f"https://archive-api.open-meteo.com/v1/archive?latitude={region['lat']}&longitude={region['lon']}&start_date=2025-01-01&end_date={end_date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
+                else:
+                    # API de forecast para operação normal
+                    url = f"https://api.open-meteo.com/v1/forecast?latitude={region['lat']}&longitude={region['lon']}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
+                
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()  # Levanta erro para status != 200
                 data = response.json()
@@ -96,4 +103,6 @@ def extract_weather():
                 logger.error(f"Erro inesperado para {region['name']}: {e}")
 
 if __name__ == "__main__":
-    extract_weather()
+    import sys
+    historical = len(sys.argv) > 1 and sys.argv[1] == 'historical'
+    extract_weather(historical=historical)
