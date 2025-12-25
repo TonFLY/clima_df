@@ -102,33 +102,34 @@ jobs:
           mkdir -p "$DEPLOY_PATH"
           cd "$DEPLOY_PATH"
 
-          # prepare database url and other secrets escaped for remote
-          DATABASE_URL_ESC=$(printf '%q' "${{ secrets.DATABASE_URL }}")
-          OPEN_METEO_ESC=$(printf '%q' "${{ secrets.OPEN_METEO_ENDPOINT }}")
-          # write docker-compose with secrets embedded (no .env file)
+          # prepare an encoded .env content from secrets and write it remote (safer than inlining into compose)
+          ENV_CONTENT_B64=$(printf 'DATABASE_URL=%s\nOPEN_METEO_ENDPOINT=%s\nTZ=America/Sao_Paulo\n' "${{ secrets.DATABASE_URL }}" "${{ secrets.OPEN_METEO_ENDPOINT }}" | base64 -w0)
 
+          # write a compact docker-compose that reads from .env and uses the built images
           cat > docker-compose.yml <<COMPOSE
           version: "3.9"
           services:
             etl:
               image: ${IMAGE_ETL}
               restart: unless-stopped
-              environment:
-                - DATABASE_URL=${DATABASE_URL_ESC}
-                - TZ=America/Sao_Paulo
-                - OPEN_METEO_ENDPOINT=${OPEN_METEO_ESC}
+              env_file:
+                - .env
             dashboard:
               image: ${IMAGE_DASHBOARD}
               restart: unless-stopped
-              environment:
-                - DATABASE_URL=${DATABASE_URL_ESC}
-                - TZ=America/Sao_Paulo
-                - OPEN_METEO_ENDPOINT=${OPEN_METEO_ESC}
+              env_file:
+                - .env
               ports:
                 - "8501:8501"
           COMPOSE
 
-          # pull and start
+          # write .env securely by decoding the base64 payload
+          echo "$ENV_CONTENT_B64" | base64 -d > .env
+          chmod 600 .env
+
+          # pull images (best-effort) and recreate dashboard so it picks up the .env
           docker compose pull || true
-          docker compose up -d --remove-orphans
+          docker compose up -d --remove-orphans || true
+          # force recreate dashboard service so it reads the new .env
+          docker compose up -d --no-deps --force-recreate --build dashboard
           EOF

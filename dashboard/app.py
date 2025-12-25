@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 import os
 import datetime
 
+# load .env from working directory (if present) and also try common container path
 load_dotenv()
+# container path fallback (/app/.env) -- won't override already-set env vars
+load_dotenv('/app/.env', override=False)
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
     st.error('DATABASE_URL não encontrada no .env')
