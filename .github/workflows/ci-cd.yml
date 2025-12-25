@@ -82,11 +82,22 @@ jobs:
           # sanitize secrets (remove CRLF/newlines and trim whitespace) to avoid invalid host/user
           safe_host=$(echo "$VPS_HOST" | tr -d '\r' | xargs)
           safe_user=$(echo "$VPS_USER" | tr -d '\r' | xargs)
-          ssh -o StrictHostKeyChecking=no "$safe_user@$safe_host" "IMAGE_ETL=$IMAGE_ETL IMAGE_DASHBOARD=$IMAGE_DASHBOARD DEPLOY_PATH=$DEPLOY_PATH bash -s" <<'EOF'
+          # escape values for safe inlining into here-doc
+          IMAGE_ETL_ESC=$(printf '%q' "$IMAGE_ETL")
+          IMAGE_DASHBOARD_ESC=$(printf '%q' "$IMAGE_DASHBOARD")
+          DEPLOY_PATH_ESC=$(printf '%q' "$DEPLOY_PATH")
+
+          # run remote bash and feed the deployment script via here-doc (variables already escaped)
+          ssh -o StrictHostKeyChecking=no "$safe_user@$safe_host" 'bash -s' <<EOF
           set -e
-          export IMAGE_ETL="${IMAGE_ETL}"
-          export IMAGE_DASHBOARD="${IMAGE_DASHBOARD}"
-          export DEPLOY_PATH="${DEPLOY_PATH:-/home/deploy/app}"
+          IMAGE_ETL=$IMAGE_ETL_ESC
+          IMAGE_DASHBOARD=$IMAGE_DASHBOARD_ESC
+          DEPLOY_PATH=
+          if [ -n "$DEPLOY_PATH_ESC" ]; then
+            DEPLOY_PATH=$DEPLOY_PATH_ESC
+          else
+            DEPLOY_PATH=/home/deploy/app
+          fi
 
           mkdir -p "$DEPLOY_PATH"
           cd "$DEPLOY_PATH"
