@@ -14,6 +14,45 @@ if not DATABASE_URL:
 
 engine = create_engine(DATABASE_URL)
 
+# Coordenadas aproximadas por região (para o mapa)
+REGION_COORDS = {
+    "Plano Piloto": (-15.7833, -47.9167),
+    "Asa Norte": (-15.7633, -47.8833),
+    "Asa Sul": (-15.8067, -47.8833),
+    "Taguatinga": (-15.8333, -48.0667),
+    "Ceilândia": (-15.8167, -48.1167),
+    "Samambaia": (-15.8667, -48.0833),
+    "Sobradinho": (-15.65, -47.7833),
+    "Planaltina": (-15.6167, -47.65),
+    "Gama": (-16.0167, -48.0667),
+    "Guará": (-15.8167, -47.9833),
+    "Núcleo Bandeirante": (-15.8667, -47.9667),
+    "Paranoá": (-15.7667, -47.7833),
+    "Itapoã": (-15.75, -47.7667),
+    "Jardim Botânico": (-15.8667, -47.8),
+    "Lago Sul": (-15.8667, -47.8667),
+    "Lago Norte": (-15.7167, -47.8833),
+    "Candangolândia": (-15.85, -47.95),
+    "Varjão": (-15.7167, -47.8833),
+    "SIA": (-15.8, -47.9667),
+    "Sudoeste": (-15.7833, -47.9167),
+    "Santa Maria": (-16.0167, -47.9833),
+    "São Sebastião": (-15.9, -47.7667),
+    "Recanto das Emas": (-15.9167, -48.0667),
+    "Riacho Fundo": (-15.8833, -48.0167),
+    "Riacho Fundo II": (-15.9, -48.0333),
+    "Estrutural": (-15.7833, -47.9833),
+    "Vicente Pires": (-15.8, -48.0333),
+    "Águas Claras": (-15.8333, -48.0333),
+    "Arniqueira": (-15.85, -47.9667),
+    "Brazlândia": (-15.6667, -48.2),
+    "Cruzeiro": (-15.7833, -47.9333),
+    "Fercal": (-15.6, -47.8667),
+    "Park Way": (-15.9, -47.8167),
+    "SCIA": (-15.7833, -47.9667),
+    "Sobradinho II": (-15.6333, -47.8167)
+}
+
 st.set_page_config(page_title='Clima DF — Dashboard', layout='wide')
 
 # Minimal styling for a cleaner UI
@@ -53,12 +92,15 @@ df = load_data()
 # Sidebar filters
 st.sidebar.header('Filtros')
 regions = sorted(df['regiao'].unique())
-if 'selected_regions' not in st.session_state:
-    st.session_state.selected_regions = regions[:3]
+# Garantir valor inicial sem sobrescrever após widget criado
+st.session_state.setdefault('selected_regions', regions[:3])
 
 selected_regions = st.sidebar.multiselect('Região', regions, key='selected_regions')
-if st.sidebar.button('Selecionar todas'):
-    st.session_state.selected_regions = regions
+
+def _select_all():
+    st.session_state['selected_regions'] = regions
+
+st.sidebar.button('Selecionar todas', on_click=_select_all)
 
 years = sorted(df['year'].unique())
 selected_year = st.sidebar.selectbox('Ano', years, index=len(years)-1)
@@ -160,3 +202,30 @@ else:
     # Export
     csv = filtered.to_csv(index=False)
     st.download_button('Exportar CSV (filtro atual)', csv, file_name=f'clima_{selected_month_name}.csv')
+
+    # Mapa de temperatura média — usar coordenadas aproximadas
+    try:
+        map_df = filtered.groupby('regiao', as_index=False).agg(temperatura_media=('temperatura_maxima','mean'))
+        # adicionar lat/lon
+        lats, lons = [], []
+        for r in map_df['regiao']:
+            coord = REGION_COORDS.get(r)
+            if coord:
+                lats.append(coord[0])
+                lons.append(coord[1])
+            else:
+                lats.append(None)
+                lons.append(None)
+        map_df['lat'] = lats
+        map_df['lon'] = lons
+        map_df = map_df.dropna(subset=['lat','lon'])
+
+        if not map_df.empty:
+            st.subheader('Mapa — Temperatura Máxima Média')
+            fig_map = px.scatter_mapbox(map_df, lat='lat', lon='lon', size='temperatura_media', color='temperatura_media',
+                                       hover_name='regiao', hover_data={'lat':False,'lon':False,'temperatura_media':':.1f'},
+                                       color_continuous_scale='Turbo', size_max=18, zoom=10)
+            fig_map.update_layout(mapbox_style='open-street-map', margin={'r':0,'t':0,'l':0,'b':0})
+            st.plotly_chart(fig_map, use_container_width=True)
+    except Exception:
+        pass
