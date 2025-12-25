@@ -102,13 +102,10 @@ jobs:
           mkdir -p "$DEPLOY_PATH"
           cd "$DEPLOY_PATH"
 
-          # create .env from secrets (DATABASE_URL and optional others)
-          cat > .env <<ENV_EOF
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-          TZ=America/Sao_Paulo
-          OPEN_METEO_ENDPOINT=${{ secrets.OPEN_METEO_ENDPOINT || 'https://api.open-meteo.com' }}
-          ENV_EOF
-          chmod 600 .env
+          # prepare database url and other secrets escaped for remote
+          DATABASE_URL_ESC=$(printf '%q' "${{ secrets.DATABASE_URL }}")
+          OPEN_METEO_ESC=$(printf '%q' "${{ secrets.OPEN_METEO_ENDPOINT }}")
+          # write docker-compose with secrets embedded (no .env file)
 
           cat > docker-compose.yml <<COMPOSE
           version: "3.9"
@@ -116,13 +113,17 @@ jobs:
             etl:
               image: ${IMAGE_ETL}
               restart: unless-stopped
-              env_file:
-                - .env
+              environment:
+                - DATABASE_URL=${DATABASE_URL_ESC}
+                - TZ=America/Sao_Paulo
+                - OPEN_METEO_ENDPOINT=${OPEN_METEO_ESC}
             dashboard:
               image: ${IMAGE_DASHBOARD}
               restart: unless-stopped
-              env_file:
-                - .env
+              environment:
+                - DATABASE_URL=${DATABASE_URL_ESC}
+                - TZ=America/Sao_Paulo
+                - OPEN_METEO_ENDPOINT=${OPEN_METEO_ESC}
               ports:
                 - "8501:8501"
           COMPOSE
