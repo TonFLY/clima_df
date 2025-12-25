@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
 import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -59,28 +61,40 @@ def extract_weather(historical=False):
         {"name": "Sobradinho II", "lat": -15.6333, "lon": -47.8167}
     ]
     
-    with engine.begin() as conn:  # Transação explícita
-        for region in regions:
-            try:
-                if historical:
-                    # API histórica para backfill
-                    end_date = datetime.date.today()
-                    url = f"https://archive-api.open-meteo.com/v1/archive?latitude={region['lat']}&longitude={region['lon']}&start_date=2025-01-01&end_date={end_date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
-                else:
-                    # API de forecast para operação normal
-                    url = f"https://api.open-meteo.com/v1/forecast?latitude={region['lat']}&longitude={region['lon']}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
-                
-                response = requests.get(url, timeout=10)
-                response.raise_for_status()  # Levanta erro para status != 200
-                data = response.json()
-                
-                # Inserir dados brutos por data (não o JSON inteiro repetido)
-                daily = data['daily']
-                times = daily['time']
-                temp_max = daily['temperature_2m_max']
-                temp_min = daily['temperature_2m_min']
-                precipitation = daily['precipitation_sum']
-                
+    # Preparar sessão com retries para chamadas HTTP
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    # Fazer transação por região para evitar que uma falha invalidade toda a carga
+    for region in regions:
+        try:
+            if historical:
+                # API histórica para backfill
+                end_date = datetime.date.today()
+                url = f"https://archive-api.open-meteo.com/v1/archive?latitude={region['lat']}&longitude={region['lon']}&start_date=2025-01-01&end_date={end_date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
+            else:
+                # API de forecast para operação normal
+                url = f"https://api.open-meteo.com/v1/forecast?latitude={region['lat']}&longitude={region['lon']}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America/Sao_Paulo"
+
+            response = session.get(url, timeout=15)
+            response.raise_for_status()  # Levanta erro para status != 200
+            data = response.json()
+
+            # Inserir dados brutos por data em transação separada
+            daily = data.get('daily')
+            if not daily:
+                logger.error(f"Resposta sem campo 'daily' para {region['name']}")
+                continue
+
+            times = daily['time']
+            temp_max = daily['temperature_2m_max']
+            temp_min = daily['temperature_2m_min']
+            precipitation = daily['precipitation_sum']
+
+            with engine.begin() as conn:  # transação apenas para a região atual
                 for i, date in enumerate(times):
                     raw_data = json.dumps({
                         "temperature_2m_max": temp_max[i],
@@ -96,11 +110,11 @@ def extract_weather(historical=False):
                         'data': date,
                         'raw_data': raw_data
                     })
-                logger.info(f"Dados brutos inseridos para {region['name']} - {len(times)} dias")
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Erro na requisição para {region['name']}: {e}")
-            except Exception as e:
-                logger.error(f"Erro inesperado para {region['name']}: {e}")
+            logger.info(f"Dados brutos inseridos para {region['name']} - {len(times)} dias")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Erro na requisição para {region['name']}: {e}")
+        except Exception as e:
+            logger.error(f"Erro inesperado para {region['name']}: {e}")
 
 if __name__ == "__main__":
     import sys
