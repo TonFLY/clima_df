@@ -79,7 +79,10 @@ jobs:
           IMAGE_ETL: ghcr.io/${{ needs.build-and-push.outputs.repo }}:clima-etl-${{ github.sha }}
           IMAGE_DASHBOARD: ghcr.io/${{ needs.build-and-push.outputs.repo }}:clima-dashboard-${{ github.sha }}
         run: |
-          ssh -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST "IMAGE_ETL=$IMAGE_ETL IMAGE_DASHBOARD=$IMAGE_DASHBOARD DEPLOY_PATH=$DEPLOY_PATH bash -s" <<'EOF'
+          # sanitize secrets (remove CRLF/newlines and trim whitespace) to avoid invalid host/user
+          safe_host=$(echo "$VPS_HOST" | tr -d '\r' | xargs)
+          safe_user=$(echo "$VPS_USER" | tr -d '\r' | xargs)
+          ssh -o StrictHostKeyChecking=no "$safe_user@$safe_host" "IMAGE_ETL=$IMAGE_ETL IMAGE_DASHBOARD=$IMAGE_DASHBOARD DEPLOY_PATH=$DEPLOY_PATH bash -s" <<'EOF'
           set -e
           export IMAGE_ETL="${IMAGE_ETL}"
           export IMAGE_DASHBOARD="${IMAGE_DASHBOARD}"
