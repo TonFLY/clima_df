@@ -1,0 +1,1 @@
+0 * * * * /usr/bin/python3 /path/to/brasilia-weather-pipeline/ingestion/extract_weather.py && /usr/bin/python3 /path/to/brasilia-weather-pipeline/transform/transform_weather.py && /usr/bin/python3 /path/to/brasilia-weather-pipeline/load/load_mysql.py
