@@ -127,9 +127,24 @@ jobs:
           echo "$ENV_CONTENT_B64" | base64 -d > .env
           chmod 600 .env
 
+          # debug: mostrar .env criado
+          echo '--- .env remoto ---'
+          cat .env
+          echo '-------------------'
+
           # pull images (best-effort) and recreate dashboard so it picks up the .env
           docker compose pull || true
           docker compose up -d --remove-orphans || true
           # force recreate dashboard service so it reads the new .env
           docker compose up -d --no-deps --force-recreate --build dashboard
+
+          # debug: mostrar env do container dashboard
+          DASH_ID=$(docker ps -qf 'name=dashboard')
+          if [ -n "$DASH_ID" ]; then
+            echo '--- ENV do container dashboard ---'
+            docker exec "$DASH_ID" printenv | grep DATABASE_URL || echo 'DATABASE_URL não definida no container'
+            echo '--- /app/.env no container ---'
+            docker exec "$DASH_ID" cat /app/.env || echo '/app/.env não encontrado no container'
+            echo '---------------------------------'
+          fi
           EOF
