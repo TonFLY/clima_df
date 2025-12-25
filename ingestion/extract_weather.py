@@ -7,6 +7,8 @@ import os
 import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import time
+from sqlalchemy.exc import OperationalError
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -60,6 +62,12 @@ def extract_weather(historical=False):
         {"name": "SCIA", "lat": -15.7833, "lon": -47.9667},
         {"name": "Sobradinho II", "lat": -15.6333, "lon": -47.8167}
     ]
+
+    # Se variável de ambiente REGIONS estiver setada, usar apenas essas regiões (vírgula-separadas)
+    regions_env = os.getenv('REGIONS')
+    if regions_env:
+        wanted = [r.strip().lower() for r in regions_env.split(',') if r.strip()]
+        regions = [r for r in regions if r['name'].strip().lower() in wanted]
     
     # Preparar sessão com retries para chamadas HTTP
     session = requests.Session()
@@ -94,23 +102,60 @@ def extract_weather(historical=False):
             temp_min = daily['temperature_2m_min']
             precipitation = daily['precipitation_sum']
 
-            with engine.begin() as conn:  # transação apenas para a região atual
-                for i, date in enumerate(times):
-                    raw_data = json.dumps({
-                        "temperature_2m_max": temp_max[i],
-                        "temperature_2m_min": temp_min[i],
-                        "precipitation_sum": precipitation[i]
-                    })
-                    conn.execute(text("""
-                        INSERT INTO weather_raw (regiao, data, raw_data)
-                        VALUES (:regiao, :data, :raw_data)
-                        ON DUPLICATE KEY UPDATE raw_data = VALUES(raw_data)
-                    """), {
-                        'regiao': region['name'],
-                        'data': date,
-                        'raw_data': raw_data
-                    })
+            # Inserir em batches para reduzir lock wait e duração da transação
+            batch_size = 50
+            insert_sql = text("""
+                INSERT INTO weather_raw (regiao, data, raw_data)
+                VALUES (:regiao, :data, :raw_data)
+                ON DUPLICATE KEY UPDATE raw_data = VALUES(raw_data)
+            """)
+
+            records = []
+            for i, date in enumerate(times):
+                raw_data = json.dumps({
+                    "temperature_2m_max": temp_max[i],
+                    "temperature_2m_min": temp_min[i],
+                    "precipitation_sum": precipitation[i]
+                })
+                records.append({
+                    'regiao': region['name'],
+                    'data': date,
+                    'raw_data': raw_data
+                })
+
+                if len(records) >= batch_size:
+                    # tentar inserir o batch com retries em caso de OperationalError
+                    attempts = 0
+                    while attempts < 3:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(insert_sql, records)
+                            break
+                        except OperationalError as oe:
+                            attempts += 1
+                            wait = 2 ** attempts
+                            logger.warning(f"OperationalError ao inserir batch em {region['name']}, tentativa {attempts}, esperando {wait}s: {oe}")
+                            time.sleep(wait)
+                    records = []
+
+            # inserir resto
+            if records:
+                attempts = 0
+                while attempts < 3:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(insert_sql, records)
+                        break
+                    except OperationalError as oe:
+                        attempts += 1
+                        wait = 2 ** attempts
+                        logger.warning(f"OperationalError ao inserir batch final em {region['name']}, tentativa {attempts}, esperando {wait}s: {oe}")
+                        time.sleep(wait)
+
             logger.info(f"Dados brutos inseridos para {region['name']} - {len(times)} dias")
+
+            # diminui probabilidade de throttling e reduz pressão no BD
+            time.sleep(1)
         except requests.exceptions.RequestException as e:
             logger.error(f"Erro na requisição para {region['name']}: {e}")
         except Exception as e:
